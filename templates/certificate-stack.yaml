@@ -1,0 +1,38 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SSL certificate for {{PROJECT_NAME}} (MUST be deployed in us-east-1 for CloudFront)'
+
+# NOTE: CloudFront can only use ACM certificates from us-east-1.
+# Deploy this stack with --region us-east-1 regardless of where the rest of the
+# app lives.
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: "{{DOMAIN}}"          # e.g. app.example.co.uk
+    Description: Custom domain name for the app
+
+  HostedZoneId:
+    Type: String
+    Description: Route 53 Hosted Zone ID for the parent domain
+
+Resources:
+  SSLCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      Tags:
+        - Key: Name
+          Value: !Sub "${DomainName}-certificate"
+        - Key: Project
+          Value: "{{PROJECT_NAME}}"
+
+Outputs:
+  SSLCertificateArn:
+    Description: SSL Certificate ARN for CloudFront
+    Value: !Ref SSLCertificate
+    Export:
+      Name: !Sub "${AWS::StackName}-CertificateArn"
