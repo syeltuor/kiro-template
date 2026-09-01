@@ -101,8 +101,10 @@ copy_file() {
 }
 
 # ---- 1. Steering files (always) ---------------------------------------------
+# Source repo stores these under kiro/steering (no dot). The target project needs
+# them under .kiro/steering (dotted) so Kiro picks them up.
 c_info "Installing Kiro steering files..."
-for f in "$SRC"/.kiro/steering/*.md; do
+for f in "$SRC"/kiro/steering/*.md; do
   [ -e "$f" ] || continue
   copy_file "$f" "$TARGET_DIR/.kiro/steering/$(basename "$f")"
 done
