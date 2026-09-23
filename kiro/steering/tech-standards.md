@@ -40,8 +40,8 @@ Pick one per project, perfer option 1 unless stated
 - Primary region: `eu-west-2` (London).
 - ACM certificates for CloudFront **must** be created in `us-east-1` (CloudFront
   only reads certs from us-east-1). All other resources stay in the primary region.
-- Lambda runtimes: **Node.js 20.x** for APIs, **Python 3.12** for scrapers/jobs.
-  Keep runtimes current; don't ship on deprecated versions.
+- Lambda runtimes: **Node.js** for APIs (latest version available), **Python** for scrapers/jobs.
+  (latest version available) Keep runtimes current; don't ship on deprecated versions.
 
 ## DynamoDB conventions
 
