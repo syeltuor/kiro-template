@@ -1,13 +1,17 @@
+// kiro-template v2.0.0
 /**
- * Auth Option 2 - Shared header token (lightweight).
+ * LIMITED USE, see security-standards v2 (decision table row d).
+ * Shared header token: only for trivial, non-sensitive internal tools. Never for
+ * personal data, money, or anything public-facing. Use Cognito for those.
  *
  * A single shared secret held in the ADMIN_TOKEN env var, checked inside the
- * Lambda. Cheaper and simpler than an API Key, but it's one shared secret with
- * no usage plan - use only for small internal/family apps.
+ * Lambda. One shared secret, no per-client keys, no usage plan.
  *
  * The token value comes from the environment, NEVER hardcode it and never commit
- * it. Set it at deploy time (e.g. CloudFormation parameter -> Lambda env var, or
- * SSM). Provide a .env.example listing ADMIN_TOKEN with an empty value.
+ * it. Store it in SSM as a SecureString (scripts/setup-params.sh secure admin-token)
+ * and have the Lambda read it at cold start (GetParameter with decryption, cached
+ * in memory; IAM scoped to that one parameter ARN) and expose it as ADMIN_TOKEN.
+ * Don't put it in a plain CloudFormation parameter or template.
  */
 
 /**
@@ -61,6 +65,6 @@ module.exports = { requireTokenAuth };
  * });
  *
  * ---- Rate limiting note -----------------------------------------------------
- * This option has no built-in usage plan. Add throttling separately, e.g. the
- * serverless-api-gateway-throttling plugin (stage-level: ~10 req/s, burst 50).
+ * This option has no built-in usage plan. Add stage-level throttling on the API
+ * Gateway stage (MethodSettings, e.g. 10 req/s, burst 50; see api-stack.yaml).
  */

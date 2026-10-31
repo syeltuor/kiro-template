@@ -1,55 +1,115 @@
+# kiro-template v2.0.0
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CloudFront + private S3 (OAC) + Route53 for {{PROJECT_NAME}} with HTTPS'
+Description: 'Private S3 site bucket + CloudFront (OAC, HTTPS, TLS 1.2, security headers + CSP) + Route 53 A/AAAA'
+#
+# Works for both standard shapes:
+#   A0 static-only public site:  ContentSecurityPolicy can stay at its default.
+#   A  site + API (+ Cognito):   pass a CSP whose connect-src includes the API origin and
+#                                the Cognito origin, and whose form-action includes Cognito.
+#                                templates/scripts/deploy.sh builds it from stack outputs.
 
 Parameters:
+  Project:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project slug; the site bucket is <project>-ui-<account>
   DomainName:
     Type: String
-    Default: "{{DOMAIN}}"              # e.g. app.example.co.uk
-    Description: Custom domain name
-
+    Description: Custom domain name for the site, e.g. app.example.com
   HostedZoneId:
-    Type: String
-    Description: Route 53 Hosted Zone ID for the parent domain
-
-  S3BucketName:
-    Type: String
-    Default: "{{PROJECT_SLUG}}-ui"     # bucket holding the static site
-    Description: S3 bucket name containing the static website
-
+    Type: AWS::Route53::HostedZone::Id
+    Description: Route 53 hosted zone ID for the parent domain (looked up by deploy.sh)
   CertificateArn:
     Type: String
-    Description: ARN of the ACM certificate (must be from us-east-1)
+    AllowedPattern: '^arn:aws[a-z-]*:acm:us-east-1:[0-9]{12}:certificate/.+$'
+    Description: ACM certificate ARN (must be in us-east-1)
+  ContentSecurityPolicy:
+    Type: String
+    Default: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; manifest-src 'self'"
+    Description: Strict CSP. Add the API and Cognito origins to connect-src (and Cognito to form-action) for an authenticated site
 
 Resources:
-  # Origin Access Control - modern replacement for OAI; keeps the bucket private
+  # Private bucket; only this distribution can read it (OAC + bucket policy below).
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${Project}-ui-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+
+  # Origin Access Control (not the legacy OAI)
   OriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
       OriginAccessControlConfig:
-        Name: !Sub "${DomainName}-OAC"
+        Name: !Sub "${DomainName}-oac"
+        Description: !Sub "OAC for the ${Project} site bucket"
         OriginAccessControlOriginType: s3
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  CloudFrontDistribution:
+  ResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "${Project}-security-headers"
+        Comment: !Sub "HSTS, CSP and other security headers for ${DomainName}"
+        SecurityHeadersConfig:
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: false
+            Preload: false
+            Override: true
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: strict-origin-when-cross-origin
+            Override: true
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: !Ref ContentSecurityPolicy
+            Override: true
+
+  Distribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
+        Comment: !Sub "${Project} (${DomainName})"
+        Enabled: true
         Aliases:
           - !Ref DomainName
         Origins:
-          - Id: S3Origin
-            DomainName: !Sub "${S3BucketName}.s3.${AWS::Region}.amazonaws.com"
-            S3OriginConfig: {}
+          - Id: SiteBucketOrigin
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
             OriginAccessControlId: !GetAtt OriginAccessControl.Id
         DefaultCacheBehavior:
-          TargetOriginId: S3Origin
+          TargetOriginId: SiteBucketOrigin
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
           CachedMethods: [GET, HEAD]
           Compress: true
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # Managed-CachingOptimized
-        # SPA-friendly: serve index.html for client-side routes / missing objects
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6   # Managed-CachingOptimized
+          ResponseHeadersPolicyId: !Ref ResponseHeadersPolicy
+        # SPA-style routing: missing objects / client routes serve index.html
         CustomErrorResponses:
           - ErrorCode: 403
             ResponseCode: 200
@@ -58,75 +118,84 @@ Resources:
             ResponseCode: 200
             ResponsePagePath: /index.html
         DefaultRootObject: index.html
-        Enabled: true
         HttpVersion: http2
         IPV6Enabled: true
-        PriceClass: PriceClass_100      # North America + Europe edge locations
+        PriceClass: PriceClass_100   # North America + Europe edge locations
         ViewerCertificate:
           AcmCertificateArn: !Ref CertificateArn
           SslSupportMethod: sni-only
           MinimumProtocolVersion: TLSv1.2_2021
-        Comment: !Sub "CloudFront distribution for ${DomainName}"
       Tags:
-        - Key: Name
-          Value: !Sub "${DomainName}-distribution"
         - Key: Project
-          Value: "{{PROJECT_NAME}}"
+          Value: !Ref Project
 
-  # Bucket policy: allow ONLY this CloudFront distribution to read objects
-  S3BucketPolicy:
+  SiteBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref S3BucketName
+      Bucket: !Ref SiteBucket
       PolicyDocument:
+        Version: '2012-10-17'
         Statement:
           - Sid: AllowCloudFrontServicePrincipal
             Effect: Allow
             Principal:
               Service: cloudfront.amazonaws.com
             Action: s3:GetObject
-            Resource: !Sub "arn:aws:s3:::${S3BucketName}/*"
+            Resource: !Sub "${SiteBucket.Arn}/*"
             Condition:
               StringEquals:
-                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+                'AWS:SourceArn': !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt SiteBucket.Arn
+              - !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
 
-  DNSRecord:
+  DnsA:
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Ref DomainName
       Type: A
       AliasTarget:
-        DNSName: !GetAtt CloudFrontDistribution.DomainName
-        HostedZoneId: Z2FDTNDATAQYW2   # CloudFront global hosted zone ID (fixed)
+        DNSName: !GetAtt Distribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2   # CloudFront's fixed global hosted zone ID
         EvaluateTargetHealth: false
 
-  DNSRecordIPv6:
+  DnsAAAA:
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Ref DomainName
       Type: AAAA
       AliasTarget:
-        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        DNSName: !GetAtt Distribution.DomainName
         HostedZoneId: Z2FDTNDATAQYW2
         EvaluateTargetHealth: false
 
 Outputs:
-  CloudFrontDistributionId:
-    Description: CloudFront Distribution ID (use for cache invalidations)
-    Value: !Ref CloudFrontDistribution
+  DistributionId:
+    Description: CloudFront distribution ID (for invalidations)
+    Value: !Ref Distribution
     Export:
       Name: !Sub "${AWS::StackName}-DistributionId"
-
-  CloudFrontDomainName:
-    Description: CloudFront Distribution Domain Name
-    Value: !GetAtt CloudFrontDistribution.DomainName
+  DistributionDomainName:
+    Description: CloudFront distribution domain name
+    Value: !GetAtt Distribution.DomainName
     Export:
-      Name: !Sub "${AWS::StackName}-DomainName"
-
+      Name: !Sub "${AWS::StackName}-DistributionDomainName"
+  SiteBucketName:
+    Description: Private S3 bucket holding the site
+    Value: !Ref SiteBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-SiteBucketName"
   CustomDomainURL:
-    Description: Custom domain URL
+    Description: Site URL
     Value: !Sub "https://${DomainName}"
     Export:
-      Name: !Sub "${AWS::StackName}-CustomURL"
+      Name: !Sub "${AWS::StackName}-CustomDomainURL"

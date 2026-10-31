@@ -1,0 +1,37 @@
+# kiro-template v2.0.0
+# Baseline .gitignore: copy to the project root as .gitignore.
+# Ignore only machine-local, secret or generated files. Everything that defines the
+# project (infra, scripts, .kiro/steering, README, .agents/ notes) stays in git.
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+coverage/
+
+# Build output (packaged templates, lint copies, screenshots)
+build/
+dist/
+packaged*.yaml
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Generated at deploy time by scripts/deploy.sh
+staging/js/config.js
+
+# Backups made by the standards installer (--force)
+*.bak-*

@@ -1,95 +1,159 @@
-# AWS Serverless Project Standards
+<!-- kiro-template v2.0.0 -->
 
-A copy-ready starter kit that captures the conventions used across Outback Projects
-serverless web apps (e.g. Family Agenda, Swimming Times). Drop these into a new
-project to give Kiro the right context and to keep architecture, security, and
-deployment consistent.
+# Kiro AWS Serverless Standards v2
+
+A copy-ready starter kit of Kiro steering files, CloudFormation templates and
+project scripts for small serverless web apps on AWS. Install it into a project
+and Kiro picks up the architecture, security, cost, GitHub and process rules
+automatically.
+
+> **What changed since v1**
+>
+> - **Cognito only when a site needs authentication.** A clear decision table:
+>   public read-only sites need no auth; private data or any write uses Cognito.
+> - **Idle cost under $1/month per app**, with a new always-on `cost-standards.md`.
+> - **Serverless Framework dropped.** Raw CloudFormation is the only IaC standard.
+> - **New steering**: `cost-standards`, `github-standards`, `process-standards`
+>   and `lessons-learned` (real gotchas, incl. Cognito branding).
+> - **No hard-coded runtime versions**: use the latest Lambda-supported runtimes.
+> - **New templates and scripts**: Cognito, API, data, budget, artifacts stacks;
+>   `deploy.sh`, `lint.sh`, `privacy-check.sh`, `setup-params.sh` and more.
+> - Installer: `STANDARDS_REF` (branch or tag), `--scripts`, version stamp.
+>
+> Full list and migration notes: [CHANGELOG.md](CHANGELOG.md). Need v1? See
+> [Versions](#versions).
 
 ## What's in here
 
 ```
-standards/
+kiro-template/
 ├── README.md                     # This file
-├── PROJECT-README-TEMPLATE.md    # Generic README to copy into a new project
-├── .kiro/
-│   └── steering/                 # Kiro steering files (guidance for the agent)
-│       ├── tech-standards.md         # Core architecture + conventions (always on)
-│       ├── frontend-hosting.md       # S3 + CloudFront static hosting (always on)
-│       ├── security-standards.md     # Auth, secrets, CORS, TLS (always on)
-│       └── deployment-standards.md   # Deploy scripts, infra, favicons (on demand)
-└── templates/                    # Reusable infra you'd otherwise rewrite
+├── VERSION                       # 2.0.0
+├── CHANGELOG.md                  # What changed, and v1 -> v2 migration notes
+├── PROJECT-README-TEMPLATE.md    # README to copy into a new project
+├── install.sh                    # Installer (curl | bash, or run locally)
+├── kiro/
+│   └── steering/                 # Installed into <project>/.kiro/steering/
+│       ├── tech-standards.md         # Architecture, shapes, runtimes, IaC (always)
+│       ├── security-standards.md     # Auth decision table, Cognito, SSM, CORS (always)
+│       ├── cost-standards.md         # < $1/month idle, what not to create (always)
+│       ├── frontend-hosting.md       # S3 + CloudFront + OAC, headers, CSP (always)
+│       ├── github-standards.md       # Visibility, branches, commits, privacy (always)
+│       ├── process-standards.md      # How work gets done and verified (always)
+│       ├── deployment-standards.md   # Deploy script rules (*.yaml, *.yml, *.sh)
+│       └── lessons-learned.md        # Gotchas (auto: loaded when relevant)
+└── templates/
     ├── certificate-stack.yaml        # ACM cert (us-east-1) for CloudFront
-    ├── cloudfront-stack.yaml         # CloudFront + S3 (OAC) + Route53
-    ├── deploy-cloudfront.sh          # Orchestrates cert -> CloudFront deploy
-    ├── deploy-api.sh                 # Generic API stack deploy script
-    └── auth/
-        ├── requireApiKeyAuth.md      # API Gateway API Key auth (canonical)
-        └── requireTokenAuth.js       # Header-token auth (lightweight option)
+    ├── cloudfront-stack.yaml         # Private S3 + CloudFront (OAC, CSP) + Route53
+    ├── artifacts-stack.yaml          # Private bucket for packaged Lambda code
+    ├── data-stack.yaml               # DynamoDB on-demand table, retained
+    ├── cognito-stack.yaml            # User pool, managed login v2 + branding, PKCE client
+    ├── api-stack.yaml                # REST API, Cognito authorizer, throttling, one Lambda
+    ├── budget-stack.yaml             # Monthly AWS Budget + email alert
+    ├── gitignore                     # Baseline .gitignore
+    ├── .env.example                  # Key names for the scripts (no values)
+    ├── deploy-cloudfront.sh          # DEPRECATED (use scripts/deploy.sh)
+    ├── deploy-api.sh                 # DEPRECATED (use scripts/deploy.sh)
+    ├── auth/
+    │   ├── requireApiKeyAuth.md      # API key + usage plan (limited use)
+    │   └── requireTokenAuth.js       # Shared header token (limited use)
+    └── scripts/                      # Installed into <project>/scripts/ by --scripts
+        ├── _lib.sh                   # Shared helpers (.env, stack outputs)
+        ├── deploy.sh                 # Content-only default; --infra for stacks
+        ├── lint.sh                   # cfn-lint + validate-template
+        ├── privacy-check.sh          # Fail-closed leak scan before every push
+        ├── setup-params.sh           # SSM String/SecureString at a hidden prompt
+        ├── create-user.sh            # Cognito admin-create-user
+        ├── get-urls.sh               # Print every stack output
+        ├── logs.sh                   # Tail a Lambda's logs
+        ├── dev.sh                    # Serve staging/ locally
+        ├── make-icons.sh, make-ico.py    # Favicon / PWA icon set from favicon.svg
+        └── screenshots.sh, cdp-shot.mjs  # Desktop + mobile screenshots
 ```
 
-## How to use it in a new project
+The repo stores steering under `kiro/steering` (no dot) so it shows up on GitHub;
+the installer copies it to `.kiro/steering` in your project.
 
-### Quick: the install script (recommended)
-
-Once this repo is on GitHub, set the repo URL in `install.sh` (replace
-`{{GH_USER}}/{{REPO}}` in the `DEFAULT_REPO` line), then from any project run:
+## Install into a project
 
 ```bash
-# Steering files only, into the current directory
-curl -fsSL https://raw.githubusercontent.com/{{GH_USER}}/{{REPO}}/main/install.sh | bash
+# Steering only, into the current directory
+curl -fsSL https://raw.githubusercontent.com/syeltuor/kiro-template/main/install.sh | bash
 
-# Everything (steering + templates + README), into a specific project
-curl -fsSL https://raw.githubusercontent.com/{{GH_USER}}/{{REPO}}/main/install.sh \
+# Everything (steering + templates + scripts + README) into a specific project
+curl -fsSL https://raw.githubusercontent.com/syeltuor/kiro-template/main/install.sh \
   | bash -s -- ./my-new-project --all
+
+# Or from a local clone
+./install.sh ../my-new-project --all
 ```
 
-Or clone the repo and run it locally: `./install.sh ../my-new-project --all`.
+Options: `--templates`, `--scripts`, `--readme`, `--all`, `--force`. The
+installer is safe by default: existing files are **skipped**; `--force`
+overwrites after saving a `.bak-<timestamp>` copy. It prints the version it
+installed and writes `.kiro/.standards-version` into the project.
 
-The script is safe by default: existing files are **skipped** (or backed up to
-`.bak-<timestamp>` when you pass `--force`), never silently overwritten. Options:
-`--templates`, `--readme`, `--all`, `--force`. You can also point it at a
-different repo/branch with the `STANDARDS_REPO` and `STANDARDS_BRANCH` env vars.
+Environment overrides: `STANDARDS_REPO` (URL or local path) and `STANDARDS_REF`
+(branch or tag; `STANDARDS_BRANCH` still works as a deprecated alias).
 
-After installing: open the project in Kiro (steering loads automatically), then
-replace the `{{PLACEHOLDERS}}` in any README/templates you copied.
+After installing: open the project in Kiro, then replace the `{{PLACEHOLDERS}}`.
+With `--scripts`, copy `.env.example` to `.env` and copy the stacks you need from
+`templates/` into `infra/`.
 
-### Manual (no script)
+## Versions
 
-1. Copy the `.kiro/` folder into the root of your new project.
-2. Copy `PROJECT-README-TEMPLATE.md` to `README.md` and replace the placeholders.
-3. Copy whatever you need from `templates/` and replace the placeholder values.
-4. Delete the pieces you don't need (e.g. drop `deploy-cloudfront.sh` if the app
-   embeds its frontend in Lambda instead of using S3 + CloudFront).
+- **`main` is always the latest version** (currently v2). Plain installs pull it.
+- Older versions stay available as branches and tags: branch `v1`, tag `v1.0.0`.
+- Install v1: `STANDARDS_REF=v1 ./install.sh ../my-project` (or with the curl
+  one-liner: `curl ... | STANDARDS_REF=v1 bash`).
+- Releases are tagged (`v2.0.0`, ...). See `CHANGELOG.md`.
 
-### Also worth doing: make the repo a GitHub template
+## Project shapes in plain English
 
-Mark the repo as a *template repository* in its GitHub settings. That gives you a
-one-click **Use this template** for brand-new projects. The install script is
-still the better route for adding standards to **existing** projects or pulling in
-updates later, so keep both.
+- **A. Static site + separate API (the standard).** The browser downloads the
+  site from CloudFront (fast, cached, almost free); the pages call a separate
+  API (API Gateway + Lambda) for data. UI and API deploy independently.
+- **A0. Static-only public site.** The same site with no API at all: S3 +
+  CloudFront only. The cheapest shape; no auth needed.
+- **B. One function does everything (exception).** A single Lambda Web Function
+  serves both the pages and the API. One thing to deploy, but no CDN unless you
+  add CloudFront, every UI change redeploys the function, and at the time of
+  writing it isn't available in London. Only when the owner asks for it.
 
-## The two reference architectures
+## Who needs to sign in?
 
-These standards support two shapes. Pick per project.
+| Site / API | Auth |
+|---|---|
+| Public, read-only, non-sensitive | None (still throttled; posture stated) |
+| Private/personal data, or any admin/write function | Amazon Cognito |
+| Machine-to-machine, or public endpoints needing per-client throttling | API Gateway API key |
+| Trivial, non-sensitive internal tool | Shared header token |
 
-**A. CloudFront + S3 static UI + separate API (default, from Swimming Times)**
-Best when the frontend is more than a page or two, needs a CDN, or the API and UI
-evolve independently. Raw CloudFormation stacks, static site in S3 behind
-CloudFront (OAC), APIs as separate Lambda + API Gateway stacks.
+Details in `kiro/steering/security-standards.md`.
 
-**B. Embedded frontend in Lambda (lightweight, from Family Agenda)**
-Best for tiny internal/family apps. Serverless Framework, HTML embedded into a
-single Lambda that also serves the API. Simpler, cheaper, fewer moving parts.
+## Cost principle
 
-The steering files describe both and mark A as the default.
+An app nobody uses should cost close to nothing: **under $1/month idle** (the
+shared Route53 zone excluded). NAT gateways, VPC endpoints, WAF, Secrets Manager,
+customer-managed KMS keys, provisioned capacity and always-on databases need
+explicit approval. Every design states an idle and a busy-month estimate. See
+`kiro/steering/cost-standards.md`.
 
 ## Conventions at a glance
 
-- Region: `eu-west-2` (London). ACM certs for CloudFront live in `us-east-1`.
-- Runtimes: Node.js 20.x (APIs), Python 3.12 (scrapers/jobs).
-- Data: DynamoDB, on-demand (`PAY_PER_REQUEST`) billing.
-- Auth: two documented options, API Gateway API Key (canonical) or a shared
-  header token (lightweight). Public read, protected write.
-- Secrets never live in the repo. Pull them from CloudFormation outputs or SSM.
-- Custom domains via Route53 + ACM, HTTPS enforced, TLS 1.2 minimum.
-- Target cost for small apps: a few dollars a month.
+- Region `eu-west-2` (London); ACM certs for CloudFront in `us-east-1`.
+- Runtimes: the latest Lambda-supported Node.js runtime for APIs and the latest
+  supported Python runtime for jobs. Check AWS's supported-runtimes list at
+  project start; never ship a deprecated runtime.
+- IaC: raw CloudFormation, linted before every deploy.
+- Data: one DynamoDB on-demand table per app, retained.
+- Config and secrets: SSM Parameter Store under `/<project>/...`; secrets entered
+  by the user at a hidden prompt.
+- Deploy only through `scripts/deploy.sh`; `staging/` is the live site.
+- Repos private by default; privacy check before every push.
+
+## Also worth doing: make this a GitHub template repo
+
+Mark the repo as a *template repository* in its GitHub settings for a one-click
+**Use this template** on brand-new projects. The installer is still the better
+route for adding or updating standards in existing projects.

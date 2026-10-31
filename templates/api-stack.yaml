@@ -1,0 +1,309 @@
+# kiro-template v2.0.0
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'REST API: API Gateway + Cognito User Pools authorizer + one Lambda (least-privilege role, log retention, stage throttling)'
+#
+# Package with `aws cloudformation package` (Code below is a local path rewritten to S3);
+# templates/scripts/deploy.sh does this.
+#
+# AUTH POSTURE: every data route uses the COGNITO_USER_POOLS authorizer. OPTIONS
+# preflights are unauthenticated MOCK integrations returning CORS headers only (no data).
+# This example has no write routes; the role can only read the table.
+# For a fully public read-only API (security-standards row a), set AuthorizationType: NONE
+# on the GET methods, drop the authorizer, and state "intentionally public" in the README.
+#
+# Adding a route: copy the Resource + Get + Options trio, add both methods to the
+# deployment's DependsOn, and BUMP the deployment logical ID (ApiDeploymentV1 -> V2) and
+# its reference in ApiStage. CloudFormation only redeploys the API when that ID changes.
+
+Parameters:
+  Project:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project slug, used in names and tags
+  Stage:
+    Type: String
+    Default: app
+    AllowedValues: [app, prod, dev]
+  AllowedOrigin:
+    Type: String
+    AllowedPattern: '^https://[^\s/]+$'
+    Description: The only origin allowed by CORS (the site, no trailing slash), e.g. https://app.example.com
+  DataStackName:
+    Type: String
+    Description: Name of the data stack (exports <name>-TableName and <name>-TableArn)
+  AuthStackName:
+    Type: String
+    Description: Name of the Cognito stack (exports <name>-UserPoolArn)
+  Runtime:
+    Type: String
+    # Set to the latest Lambda-supported Node.js runtime at project start, and keep it current.
+    Default: nodejs24.x
+    Description: Lambda runtime identifier (latest Lambda-supported Node.js runtime)
+  MemorySize:
+    Type: Number
+    Default: 256
+    MinValue: 128
+    MaxValue: 10240
+  Timeout:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 29
+    Description: Seconds; keep below the API Gateway integration timeout
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [14, 30]
+  ThrottleRate:
+    Type: Number
+    Default: 10
+    Description: Stage-wide steady-state requests per second
+  ThrottleBurst:
+    Type: Number
+    Default: 50
+    Description: Stage-wide burst limit
+
+Resources:
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${Project}-api"
+      RetentionInDays: !Ref LogRetentionDays
+
+  # One role per Lambda: read-only on the one table, logs on its own log group.
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub "${Project}-api"
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:BatchGetItem
+                  - dynamodb:Query
+                Resource:
+                  Fn::ImportValue: !Sub "${DataStackName}-TableArn"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt ApiLogGroup.Arn
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${Project}-api"
+      Runtime: !Ref Runtime
+      Architectures: [arm64]
+      Handler: index.handler          # async handler only (recent Node.js runtimes)
+      Code: ../services/api/src
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Role: !GetAtt ApiRole.Arn
+      Environment:
+        Variables:
+          TABLE_NAME:
+            Fn::ImportValue: !Sub "${DataStackName}-TableName"
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+          LOG_LEVEL: info
+      LoggingConfig:
+        LogGroup: !Ref ApiLogGroup
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub "${Project}-api"
+      EndpointConfiguration:
+        Types: [REGIONAL]
+      SecurityPolicy: SecurityPolicy_TLS13_1_2_2021_06   # TLS 1.2 minimum
+      EndpointAccessMode: BASIC
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: !Sub "${Project}-cognito"
+      RestApiId: !Ref RestApi
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      ProviderARNs:
+        - Fn::ImportValue: !Sub "${AuthStackName}-UserPoolArn"
+
+  # ---- /items (example authenticated route) ----------------------------------------
+  ItemsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: items
+
+  ItemsGet:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ItemsResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations"
+
+  ItemsOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ItemsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE         # preflight only: CORS headers, no data
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Max-Age: "'600'"
+            ResponseTemplates:
+              application/json: ''
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Max-Age: true
+
+  # ---- Deliberately PUBLIC read-only route (example, disabled) ----------------------
+  # Only for non-sensitive, read-only data (security-standards row a). To enable:
+  #   1. uncomment the two resources below,
+  #   2. add StatusGet to ApiDeploymentV1's DependsOn and bump the deployment ID,
+  #   3. state "GET /status is intentionally public and read-only" in the README.
+  # Stage throttling still applies.
+  #
+  # StatusResource:
+  #   Type: AWS::ApiGateway::Resource
+  #   Properties:
+  #     RestApiId: !Ref RestApi
+  #     ParentId: !GetAtt RestApi.RootResourceId
+  #     PathPart: status
+  # StatusGet:
+  #   Type: AWS::ApiGateway::Method
+  #   Properties:
+  #     RestApiId: !Ref RestApi
+  #     ResourceId: !Ref StatusResource
+  #     HttpMethod: GET
+  #     AuthorizationType: NONE        # PUBLIC on purpose
+  #     Integration:
+  #       Type: AWS_PROXY
+  #       IntegrationHttpMethod: POST
+  #       Uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiFunction.Arn}/invocations"
+
+  # CORS headers on gateway-generated errors so the browser can read 401/403/429/5xx.
+  Default4xxResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_4XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+  Default5xxResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      ResponseType: DEFAULT_5XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+
+  # RULE: bump this logical ID (V2, V3, ...) and the reference in ApiStage whenever
+  # resources, methods, the authorizer or gateway responses change.
+  ApiDeploymentV1:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ItemsGet
+      - ItemsOptions
+      - Default4xxResponse
+      - Default5xxResponse
+    Properties:
+      RestApiId: !Ref RestApi
+      Description: !Sub "${Project}-api deployment V1"
+
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RestApi
+      StageName: !Ref Stage
+      DeploymentId: !Ref ApiDeploymentV1
+      # Stage-wide throttling applies to every request (usage plans only cover keyed requests).
+      # No execution/access logging: it needs an account-level CloudWatch role and costs extra.
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: !Ref ThrottleRate
+          ThrottlingBurstLimit: !Ref ThrottleBurst
+          MetricsEnabled: false
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+
+  # Only GET on this API's stage may invoke the function.
+  ApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/${Stage}/GET/*"
+
+Outputs:
+  ApiBaseUrl:
+    Description: API base URL (stage path included)
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${ApiStage}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiBaseUrl"
+  ApiOrigin:
+    Description: API origin (no path), for the site CSP connect-src
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiOrigin"
+  RestApiId:
+    Description: REST API ID
+    Value: !Ref RestApi
+    Export:
+      Name: !Sub "${AWS::StackName}-RestApiId"
+  ApiFunctionName:
+    Description: API Lambda function name
+    Value: !Ref ApiFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiFunctionName"
+  ApiLogGroupName:
+    Description: API Lambda log group
+    Value: !Ref ApiLogGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-ApiLogGroupName"

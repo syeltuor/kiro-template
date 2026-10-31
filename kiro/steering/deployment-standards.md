@@ -1,71 +1,134 @@
 ---
 inclusion: fileMatch
-fileMatchPattern: '*.yaml|*.yml|deploy*.sh|serverless.yml'
+fileMatchPattern: ["**/*.yaml", "**/*.yml", "**/*.sh"]
 ---
+<!-- kiro-template v2.0.0 -->
 
 # Deployment Standards
 
-Loaded when working on infrastructure or deploy scripts. Keeps deployments
-repeatable, safe for data, and consistent across projects.
+Loaded when working on CloudFormation templates or shell scripts. Keeps
+deployments repeatable, safe for data, and consistent across projects. Reference
+implementation: `templates/scripts/deploy.sh`.
 
-## Deploy scripts
+## Always deploy through the project's deploy script
 
-Every deployable component has a shell script. Conventions:
+- Never hand-run `aws s3 sync`, `aws cloudformation deploy` or an invalidation.
+  If the script is awkward for what you need, **fix the script**, then run it.
+- One script, two modes:
+  - **default = content only**: sync `staging/` to S3, then invalidate CloudFront.
+  - **`--infra`**: lint, deploy the CloudFormation stacks in dependency order
+    (`--no-fail-on-empty-changeset`), then the content phase.
+- Start with `set -euo pipefail`. Validate arguments before any AWS call.
+- `PROJECT` / `STAGE` variables (overridable from a gitignored `.env`); nothing
+  account-specific is hardcoded.
+- **Read bucket names, distribution IDs, API URLs, client IDs from stack outputs**,
+  with a helper that aborts if an output is empty.
+- Look up the Route53 hosted zone ID from the parent domain, never hardcode it.
+- End by printing the live URL and the "invalidation takes 1-3 minutes" note.
+- Keep destructive or one-off actions (seeding, backfill) in their own scripts,
+  never automatic.
 
-- Start with `set -e` so any failed step aborts the deploy.
-- Accept the target stage as an argument, defaulting to `app`
-  (e.g. `STAGE=${1:-app}`).
-- Install dependencies if missing before deploying.
-- After deploy, **retrieve and print the live URLs / IDs** from stack outputs so
-  the user gets a working link, not just "done".
-- Echo clear progress with the step being run, and end with next-step hints
-  (test URL, how to view logs, how to invalidate cache).
-- Keep destructive actions (data seeding, table creation) behind an explicit flag
-  (e.g. `--with-sample-data`), never automatic.
+## `staging/` is the live site
 
-## CloudFront deploy ordering
+- `staging/` **is** the website, synced as-is with `--delete`. No build step, no
+  copy step, no hard-coded file list.
+- Old mock-ups, raw design assets and drafts go in `ARCHIVE/` (or anywhere else),
+  **never** in `staging/`, because everything in it gets published.
+- Guard: abort if `staging/index.html` is missing (a wrong path plus `--delete`
+  would wipe the site).
+- Generated deploy-time config (e.g. `staging/js/config.js` with the API URL and
+  Cognito client ID) is written by the deploy script and gitignored.
 
-1. Deploy the ACM certificate stack in `us-east-1` (DNS-validated) and wait for it.
-2. Read the cert ARN from the cert stack's outputs.
-3. Deploy the CloudFront + S3 + Route53 stack in the primary region, passing the
-   cert ARN as a parameter.
-4. Sync static files to S3.
-5. Create a CloudFront invalidation (`/*`) and note it takes 1-3 minutes.
+## S3 sync rules
 
-Look up the Route53 hosted zone ID dynamically from the parent domain rather than
-hardcoding it.
+```bash
+aws s3 sync staging/ "s3://$BUCKET" --delete \
+  --exclude ".DS_Store" --exclude "*/.DS_Store" \
+  --cache-control "public, max-age=0, s-maxage=86400, must-revalidate"
+aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths '/*'
+```
+
+- Exclude `.DS_Store` (and fixtures or other dev-only folders).
+- **Never pass a blanket `--content-type`**: the CLI guesses per file and gets
+  `.js`, `.css`, `.json`, `.svg`, `.png`, `.ico` right. A blanket type breaks them.
+- `Cache-Control: public, max-age=0, s-maxage=86400, must-revalidate`: browsers
+  always revalidate, CloudFront caches for a day, and the per-deploy `/*`
+  invalidation (1-3 minutes) makes new content visible.
+
+## Lint before deploy
+
+- `cfn-lint` (pinned, installed into a gitignored `.venv`) plus
+  `aws cloudformation validate-template` on every template. The certificate
+  template is validated in `us-east-1`. See `templates/scripts/lint.sh`.
+- Errors abort the deploy; report warnings.
+
+## Packaging Lambda code
+
+- A private, retained **artifacts bucket** stack (lifecycle-expired objects,
+  TLS-only policy) holds code for `aws cloudformation package`.
+- Templates use `Code: ../services/<name>/src`; `package` zips and rewrites it.
+  Purge `__pycache__` before packaging Python.
+- API Gateway only creates a new deployment when the `AWS::ApiGateway::Deployment`
+  logical ID changes. Bump the suffix (`ApiDeploymentV2`, `V3`, ...) whenever
+  resources, methods, authorizers or gateway responses change.
+
+## Stack order (typical)
+
+1. Certificate (`us-east-1`, DNS-validated; waits 2-5 minutes).
+2. Artifacts bucket.
+3. Data (DynamoDB, retained).
+4. Auth (Cognito), only if the site needs authentication.
+5. API (packaged).
+6. Jobs (packaged, EventBridge Scheduler).
+7. CloudFront + private S3 + Route53 (needs API/Cognito origins for the CSP).
+8. Content sync + invalidation.
+
+A new CloudFront distribution takes 5-15 minutes. Long deploys can outlive an
+agent's command timeout: run them with `nohup ... > deploy.log 2>&1 &` and poll.
 
 ## Data safety
 
-- Deploys update code and infrastructure only. They must never drop or overwrite
-  DynamoDB data.
-- Treat data tables as persistent resources. If a table already exists, reuse it.
-- Only run seed/sample-data scripts on first-time setup, behind a flag.
+- Deploys update code and infrastructure only. They never drop or overwrite data.
+- Tables, user pools and buckets are `DeletionPolicy: Retain`.
+- A stack in `ROLLBACK_COMPLETE` must be deleted before it can be re-created.
+  Check for retained leftovers (user pool, Cognito domain prefix, bucket) first.
 
-## Rate limiting at deploy time
+## Post-deploy checks (no data needed)
 
-- API Key projects: the Usage Plan (burst/rate) is part of the API stack.
-- Serverless Framework projects without keys: include
-  `serverless-api-gateway-throttling` and set stage-level limits.
-- Never deploy a public API with no throttling.
+Run these and report the actual output. "Stack reported success" is not enough.
+
+- [ ] `curl -sI https://<domain>` returns `HTTP/2 200` with the security headers
+- [ ] Each asset type has the right `content-type` (html, css, js, json, svg, png, ico)
+- [ ] `http://` redirects (301) to `https://`
+- [ ] TLS 1.2+ (`openssl s_client -tls1_2 ...`) and a valid cert for the domain
+- [ ] Route53 **A and AAAA** alias records resolve (`dig +short A/AAAA`)
+- [ ] **401 on every protected route** without a token (and with a bogus one)
+- [ ] CORS preflight returns only the site origin and only the allowed headers
+- [ ] Cognito login page loads (authorize URL with an S256 PKCE challenge ends on
+      the sign-in page; an unregistered `redirect_uri` gives `redirect_mismatch`)
+- [ ] Favicon set and `manifest.json` served
 
 ## Frontend deploy checklist
 
-Before considering a UI deploy complete, confirm:
-
-- [ ] Full favicon set present (`.ico`, `.svg`, PNG sizes, `apple-touch-icon.png`)
+- [ ] Full favicon set (`.ico`, `.svg`, PNG sizes, `apple-touch-icon.png`):
+      `templates/scripts/make-icons.sh`
 - [ ] `manifest.json` present and referenced
-- [ ] CloudFront cache invalidated after the file sync
-- [ ] Custom domain resolves over HTTPS
+- [ ] CloudFront cache invalidated after the sync
+- [ ] Desktop and mobile screenshots checked: `templates/scripts/screenshots.sh`
 
-## Verification
+## Privacy check before every push
 
-- After deploy, hit a real endpoint (e.g. `curl` the health/list route) to confirm
-  it responds, don't rely on the stack reporting success.
-- Know where the logs are: `serverless logs -f <fn> --stage <stage>` or CloudWatch
-  for the function's log group.
+Run `scripts/privacy-check.sh` (template in `templates/scripts/`) before pushing.
+It fails closed. See `github-standards.md`.
+
+## Logs
+
+`scripts/logs.sh <component>` tails `/aws/lambda/<project>-<component>` with
+`aws logs tail --follow`. Log groups are declared in the stack with
+`RetentionInDays`.
 
 ## Documentation
 
-Each project keeps its deployment story in `DEPLOYMENT.md` (or a `README.md`
-section): prerequisites, first-time setup, update workflow, and troubleshooting.
+Each project keeps its deployment story in the README (or `DEPLOYMENT.md`):
+prerequisites, first-time setup (including the user-only steps), update workflow,
+and troubleshooting.

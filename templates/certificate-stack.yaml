@@ -1,22 +1,24 @@
+# kiro-template v2.0.0
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'SSL certificate for {{PROJECT_NAME}} (MUST be deployed in us-east-1 for CloudFront)'
-
-# NOTE: CloudFront can only use ACM certificates from us-east-1.
-# Deploy this stack with --region us-east-1 regardless of where the rest of the
-# app lives.
+Description: 'ACM certificate for the site (MUST be deployed in us-east-1 for CloudFront), DNS-validated'
+# CloudFront only reads ACM certificates from us-east-1. Deploy this stack with
+# --region us-east-1 regardless of where the rest of the app lives. Creation waits for
+# DNS validation (usually 2-5 minutes).
 
 Parameters:
+  Project:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project slug, used in tags
   DomainName:
     Type: String
-    Default: "{{DOMAIN}}"          # e.g. app.example.co.uk
-    Description: Custom domain name for the app
-
+    Description: Custom domain name for the site, e.g. app.example.com
   HostedZoneId:
-    Type: String
-    Description: Route 53 Hosted Zone ID for the parent domain
+    Type: AWS::Route53::HostedZone::Id
+    Description: Route 53 hosted zone ID for the parent domain (looked up by deploy.sh)
 
 Resources:
-  SSLCertificate:
+  Certificate:
     Type: AWS::CertificateManager::Certificate
     Properties:
       DomainName: !Ref DomainName
@@ -28,11 +30,11 @@ Resources:
         - Key: Name
           Value: !Sub "${DomainName}-certificate"
         - Key: Project
-          Value: "{{PROJECT_NAME}}"
+          Value: !Ref Project
 
 Outputs:
-  SSLCertificateArn:
-    Description: SSL Certificate ARN for CloudFront
-    Value: !Ref SSLCertificate
+  CertificateArn:
+    Description: ACM certificate ARN for CloudFront (us-east-1)
+    Value: !Ref Certificate
     Export:
       Name: !Sub "${AWS::StackName}-CertificateArn"

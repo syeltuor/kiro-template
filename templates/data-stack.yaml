@@ -1,0 +1,61 @@
+# kiro-template v2.0.0
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DynamoDB single table (on-demand, retained, deletion protection, optional PITR). Deploys never wipe data.'
+
+Parameters:
+  Project:
+    Type: String
+    AllowedPattern: '^[a-z][a-z0-9-]{1,30}$'
+    Description: Project slug, used in tags
+  TableBaseName:
+    Type: String
+    AllowedPattern: '^[A-Za-z][A-Za-z0-9]{1,40}$'
+    Description: Table name without the stage, e.g. MyAppData (becomes MyAppData-<stage>)
+  Stage:
+    Type: String
+    Default: app
+    AllowedValues: [app, prod, dev]
+  PointInTimeRecovery:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: PITR costs ~$0.20/GB-month (cents for a small table); turn off for disposable data
+
+Resources:
+  # Single table, PK/SK strings. Add GSIs only for real query needs.
+  Table:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${TableBaseName}-${Stage}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PK
+          KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: !Ref PointInTimeRecovery
+      DeletionProtectionEnabled: true
+      # SSESpecification omitted: default encryption with an AWS owned key (no KMS cost).
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+
+Outputs:
+  TableName:
+    Description: DynamoDB table name
+    Value: !Ref Table
+    Export:
+      Name: !Sub "${AWS::StackName}-TableName"
+  TableArn:
+    Description: DynamoDB table ARN
+    Value: !GetAtt Table.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-TableArn"

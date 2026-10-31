@@ -1,7 +1,14 @@
-# Auth Option 1 — API Gateway API Key (canonical)
+<!-- kiro-template v2.0.0 -->
 
-The recommended default. Authentication and rate limiting are handled by API
-Gateway itself via an API Key + Usage Plan; your Lambda code stays clean.
+> **Limited use, see security-standards v2.** API keys are for machine-to-machine
+> callers, or public endpoints that need per-client usage-plan throttling (decision
+> table row c). They are not user authentication: for any site that shows private
+> data or has admin/write functions, use Cognito (`templates/cognito-stack.yaml`).
+
+# API Gateway API Key + Usage Plan
+
+Identification and per-client rate limiting are handled by API Gateway itself via
+an API Key + Usage Plan; your Lambda code stays clean.
 
 ## CloudFormation (add to your API stack)
 
@@ -57,25 +64,14 @@ aws apigateway get-api-key --api-key "$API_KEY_ID" --include-value \
 ## Client usage
 
 ```bash
-curl -H "x-api-key: <KEY>" https://{{DOMAIN}}/admin/resource
+curl -H "x-api-key: <KEY>" https://{{API_DOMAIN}}/resource
 ```
 
-## Frontend admin page pattern
+## Not for browser admin pages
 
-```js
-// Bootstrap the key from ?key= / ?apikey= / ?api_key=, store it, clean the URL.
-const params = new URLSearchParams(location.search);
-const urlKey = params.get('key') || params.get('apikey') || params.get('api_key');
-if (urlKey) {
-  localStorage.setItem('apiKey', urlKey);
-  history.replaceState({}, '', location.pathname);   // strip key from the URL
-}
-const apiKey = localStorage.getItem('apiKey');
-
-await fetch(`${BASE_URL}/admin/resource`, {
-  headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
-});
-```
+v1 suggested storing an API key in `localStorage` for admin pages. In v2, a
+browser admin surface uses Cognito instead: a key embedded in a web page is a
+shared secret anyone with the page can copy.
 
 ## Rotation
 

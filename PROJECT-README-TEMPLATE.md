@@ -1,122 +1,158 @@
+<!-- kiro-template v2.0.0 -->
 <!--
-  Generic README template for a serverless AWS project.
+  README template for a serverless AWS project (Kiro AWS Serverless Standards v2).
   Copy to your project root as README.md and replace all {{PLACEHOLDERS}}.
-  Delete sections that don't apply (e.g. scheduled jobs, admin API).
+  Delete sections that don't apply (e.g. no API, no auth, no scheduled jobs).
+  Never put secrets, account IDs or personal identifiers in this file.
 -->
 
 # {{PROJECT_NAME}}
 
-{{ONE_LINE_DESCRIPTION}} Built serverless on AWS (Lambda + API Gateway + DynamoDB),
-with a static frontend served via CloudFront.
+{{ONE_LINE_DESCRIPTION}}
 
 ## Features
 
 - {{FEATURE_1}}
 - {{FEATURE_2}}
 - {{FEATURE_3}}
-- Serverless architecture, scales automatically, pay only for usage
-
-## Project structure
-
-```
-{{project-slug}}/
-├── api/                  # Lambda APIs + CloudFormation stacks
-├── ui/                   # Static frontend (S3 + CloudFront)
-│   ├── index.html
-│   ├── admin.html            # Authenticated admin page
-│   ├── certificate-stack.yaml
-│   ├── cloudfront-stack.yaml
-│   └── deploy-cloudfront.sh
-├── scripts/              # Setup / maintenance scripts
-└── README.md
-```
 
 ## Architecture
 
+Shape: **{{A_STATIC_PLUS_API | A0_STATIC_ONLY | B_WEB_FUNCTION_EXCEPTION}}**
+(A is the standard. B is an exception used only when the owner asked for it;
+if chosen, record why and the approved region here.)
+
 ```
-Users ──HTTPS──▶ CloudFront ──▶ S3 (static UI)
-                     │
-Client JS ──▶ API Gateway ──▶ Lambda ──▶ DynamoDB
+Browser ──HTTPS──▶ CloudFront ──OAC──▶ S3 (staging/ = the site)
+   │
+   └──▶ API Gateway (Cognito authorizer, throttled) ──▶ Lambda ──▶ DynamoDB
+                                                       Scheduler ──▶ Lambda (jobs)
 ```
 
-- **Frontend**: static HTML/CSS/JS in S3, behind CloudFront (OAC, HTTPS, custom domain)
-- **Backend**: AWS Lambda + API Gateway (REST)
-- **Database**: DynamoDB (on-demand billing)
-- **Region**: {{REGION}} (ACM cert for CloudFront in us-east-1)
+| Piece | What it is |
+|---|---|
+| Site | Static HTML/CSS/JS in `staging/`, private S3 bucket behind CloudFront (OAC, HTTPS, CSP) at `https://{{DOMAIN}}` |
+| API | API Gateway REST → `{{project}}-api` Lambda (Node.js, latest Lambda-supported runtime) |
+| Jobs | `{{project}}-{{job}}` Lambda (Python, latest supported runtime), EventBridge Scheduler `{{SCHEDULE}}` ({{TIMEZONE}}) |
+| Data | DynamoDB table `{{TABLE_NAME}}`, on-demand, retained |
+| Auth | {{COGNITO_OR_NONE}} |
+| Config | SSM Parameter Store under `/{{project}}/` |
+| Region | {{REGION}} (certificate in us-east-1) |
+
+Stacks (raw CloudFormation in `infra/`, outputs exported as `<stack>-<OutputKey>`):
+
+| Stack | Template | Region |
+|---|---|---|
+| `{{project}}-certificate` | `infra/certificate-stack.yaml` | us-east-1 |
+| `{{project}}-artifacts` | `infra/artifacts-stack.yaml` | {{REGION}} |
+| `{{project}}-data` | `infra/data-stack.yaml` | {{REGION}} |
+| `{{project}}-auth` | `infra/cognito-stack.yaml` | {{REGION}} |
+| `{{project}}-api` | `infra/api-stack.yaml` (packaged) | {{REGION}} |
+| `{{project}}-cloudfront` | `infra/cloudfront-stack.yaml` | {{REGION}} |
 
 ## Prerequisites
 
-- AWS account with credentials configured (`aws configure`)
-- Node.js 20.x {{AND_PYTHON_IF_NEEDED}}
-- A Route53 hosted zone for `{{PARENT_DOMAIN}}`
+- AWS CLI v2 with credentials for the target account
+- A Route53 hosted zone for `{{PARENT_DOMAIN}}` (reused, not created per app)
+- Node.js and Python for local scripts and tests (current versions)
+- Google Chrome, only for screenshots and icon generation
 
-## Quick start
+## Setup (first time)
 
-### Deploy the API
-```bash
-cd api
-./deploy-api.sh {{STAGE}}
-```
+1. `cp .env.example .env` and fill it in (`.env` is gitignored).
+2. `npm run deploy:infra` (lints, deploys the stacks in order, syncs the site).
+   The certificate waits for DNS validation (2-5 min); a new distribution takes
+   5-15 min.
+3. **You** set the secrets at a hidden prompt (never paste them anywhere):
+   `scripts/setup-params.sh secure {{name}}`
+4. **You** create your login (if Cognito): `npm run create-user -- <email>`
+   (Cognito emails a temporary password; check spam).
+5. {{FIRST_DATA_LOAD, e.g. npm run backfill}}
 
-### Deploy the frontend (CloudFront + S3)
-```bash
-cd ui
-./deploy-cloudfront.sh
-# then sync files and invalidate cache
-```
+## Deploy
 
-App URL: `https://{{DOMAIN}}`
+| Command | What it does |
+|---|---|
+| `npm run deploy` | Content only: sync `staging/` to S3, invalidate CloudFront (1-3 min) |
+| `npm run deploy:infra` | Lint + deploy all stacks, then the content phase |
+| `npm run deploy:app` / `deploy:prod` | Same as `deploy` (single stage: `prod` is an alias) |
+| `npm run logs` | Tail the API Lambda logs |
+| `npm run get-urls` | Print the live URLs and IDs from stack outputs |
+| `npm run lint` | cfn-lint + validate-template |
+| `npm test` | Unit tests |
+
+Always deploy through the script. `staging/` **is** the site: whatever is in it
+gets published (old mock-ups go in `ARCHIVE/`).
+
+## Authentication
+
+Posture: **{{ONE_OF_BELOW}}**
+
+- *None*: "This site is intentionally public and read-only. The API (if any) is
+  throttled at {{RATE}} req/s, burst {{BURST}}."
+- *Cognito*: "Every API route requires a Cognito ID token (User Pools authorizer).
+  Users are created by an admin (no self sign-up). MFA: {{ON_OR_OFF_AND_WHY}}.
+  Sign-in uses the authorization-code flow with PKCE on a public client. Tokens
+  are kept in browser storage, mitigated by a strict CSP. Upgrade path: a
+  backend-for-frontend with HttpOnly cookies."
 
 ## API endpoints
 
-### Public
-- `GET {{BASE_URL}}/{{resource}}` - {{description}}
-- `GET {{BASE_URL}}/{{resource}}/{id}` - {{description}}
-
-### Authenticated (admin)
-Send the key/token as described in Security below.
-- `POST {{BASE_URL}}/admin/{{resource}}` - {{description}}
-- `PUT {{BASE_URL}}/admin/{{resource}}/{id}` - {{description}}
-- `DELETE {{BASE_URL}}/admin/{{resource}}/{id}` - {{description}}
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `{{BASE_URL}}/{{resource}}` | {{Cognito \| public}} | {{description}} |
 
 ## Security
 
-- Public read endpoints; all writes and admin surfaces are authenticated.
-- **Auth method**: {{API_KEY_OR_TOKEN}}
-  - API Key: send `x-api-key: <key>`. Retrieve the key from the API stack output
-    or `aws apigateway get-api-key --include-value`.
-  - Token: send `X-Admin-Token: <token>`. Set via the `ADMIN_TOKEN` env var.
-- Secrets are **not** stored in this repo. See `.env.example` for required keys.
-- HTTPS enforced, TLS 1.2 minimum. CORS restricted to `https://{{DOMAIN}}`.
-- Rate limiting: {{USAGE_PLAN_OR_THROTTLING}} (e.g. burst 100, rate 50 req/s).
+- Secrets and personal identifiers live only in SSM (`SecureString` / `String`),
+  set by the user at a hidden prompt. None are in git, logs, tests or docs.
+- HTTPS only, TLS 1.2 minimum, HSTS, strict CSP. CORS allows only
+  `https://{{DOMAIN}}` with `Content-Type,Authorization`.
+- Least-privilege IAM: one role per Lambda, scoped to the table, its own log
+  group and the `/{{project}}/...` parameters it reads.
+- `scripts/privacy-check.sh` runs before every push and fails closed.
+- If a secret is ever committed, rotate it.
 
-## Cost
+## Configuration (what lives in SSM)
 
-Typical monthly cost at small scale: **{{COST_ESTIMATE}}** (Lambda + API Gateway +
-DynamoDB + CloudFront, largely within free tier).
+| Parameter | Type | Set by | Purpose |
+|---|---|---|---|
+| `/{{project}}/{{name}}` | SecureString | user (hidden prompt) | {{purpose}} |
+| `/{{project}}/{{name}}` | String | `scripts/setup-params.sh` | {{purpose}} |
 
-## Maintenance
+## Data sources and limits
 
-```bash
-# View logs
-{{LOGS_COMMAND}}
+| Source | What we use | Limits / quirks (verified live, see `.agents/{{project}}/api-verification.md`) |
+|---|---|---|
+| {{SOURCE}} | {{ENDPOINTS}} | {{e.g. data lags a day, max 31 days per request, rate limit}} |
 
-# Get live URLs
-{{GET_URLS_COMMAND}}
+The UI shows "data up to {{time}}" so upstream lag doesn't look like a bug.
 
-# Invalidate CloudFront cache after a UI update
-aws cloudfront create-invalidation --distribution-id {{DIST_ID}} --paths '/*'
-```
+## Cost (idle vs busy month)
+
+| Service | Idle month | Busy month ({{assumption}}) |
+|---|---|---|
+| CloudFront | {{$}} | {{$}} |
+| S3 | {{$}} | {{$}} |
+| API Gateway | {{$}} | {{$}} |
+| Lambda | {{$}} | {{$}} |
+| DynamoDB on-demand | {{$}} | {{$}} |
+| CloudWatch Logs ({{14-30}}-day retention) | {{$}} | {{$}} |
+| Cognito Essentials | {{$}} | {{$}} |
+| **Total** | **{{< $1}}** | **{{$}}** |
+
+Real bill after the first week: **{{ACTUAL}}** (Cost Explorer, tag
+`Project={{project}}`). Not used, on purpose: NAT gateway, VPC endpoints, WAF,
+Secrets Manager, customer-managed KMS keys, provisioned capacity.
 
 ## Troubleshooting
 
-- **Stale UI after deploy**: CloudFront cache not invalidated. Run the
-  invalidation above and wait 1-3 minutes.
-- **403 on admin API**: missing or wrong API key / token.
-- **API returns stale data**: check the Lambda is pointed at the right table and
-  that recent writes landed in DynamoDB.
+- **Stale UI after deploy**: the invalidation takes 1-3 minutes.
+- **"CORS error" in the browser**: check the status code. 403 on the preflight
+  = route not deployed (bump `ApiDeploymentV<n>`); 502 = Lambda crashed or timed
+  out (`npm run logs`); 401 = missing/expired token.
+- **Login page shows an error**: the app client has no managed login branding.
 
-## Documentation
+## Standards
 
-- `DEPLOYMENT.md` - detailed deployment guide
-- `SECURITY.md` - auth and secrets handling
+Built to the Kiro AWS Serverless Standards (see `.kiro/.standards-version`).

@@ -1,0 +1,67 @@
+# kiro-template v2.0.0
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Monthly AWS cost budget with email alerts (actual and forecast). Part of the account baseline.'
+#
+# AWS Budgets is a global service; deploy this stack once per account (any region,
+# us-east-1 is conventional). The first two budgets per account are free (verify on the
+# AWS Budgets pricing page). Check the spam folder when the first alert arrives.
+# The email address is a deploy-time parameter: keep it in the gitignored .env, not in git.
+
+Parameters:
+  BudgetName:
+    Type: String
+    Default: monthly-cost
+    AllowedPattern: '^[A-Za-z0-9_.-]{1,100}$'
+  MonthlyLimitUsd:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: Monthly budget in USD for the whole account
+  AlertEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    Description: Address that receives the alerts (passed at deploy time, never committed)
+  ActualThresholdPercent:
+    Type: Number
+    Default: 80
+    Description: Alert when actual spend passes this % of the budget
+  ForecastThresholdPercent:
+    Type: Number
+    Default: 100
+    Description: Alert when forecast spend passes this % of the budget
+
+Resources:
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Ref BudgetName
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyLimitUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref ActualThresholdPercent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: !Ref ForecastThresholdPercent
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref AlertEmail
+
+Outputs:
+  BudgetName:
+    Description: Budget name
+    Value: !Ref MonthlyBudget
+    Export:
+      Name: !Sub "${AWS::StackName}-BudgetName"
