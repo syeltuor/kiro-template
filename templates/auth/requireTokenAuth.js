@@ -5,7 +5,9 @@
  * personal data, money, or anything public-facing. Use Cognito for those.
  *
  * A single shared secret held in the ADMIN_TOKEN env var, checked inside the
- * Lambda. One shared secret, no per-client keys, no usage plan.
+ * Lambda. One shared secret, no per-client keys, no usage plan. Clients send it
+ * in the X-Admin-Token header; the handler returns 401 on mismatch and 500 if
+ * ADMIN_TOKEN is unset.
  *
  * The token value comes from the environment, NEVER hardcode it and never commit
  * it. Store it in SSM as a SecureString (scripts/setup-params.sh secure admin-token)

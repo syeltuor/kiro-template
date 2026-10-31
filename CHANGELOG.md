@@ -19,11 +19,11 @@ folded back into the standards.
     table of resources not to create without approval (with the cheaper
     alternative), idle + busy-month estimates in every design, log retention,
     right-sized schedules, a budget alarm, check the real bill after a week.
-  - `github-standards.md` (always on): private by default, visibility checked
+  - `github-standards.md` (auto-included): private by default, visibility checked
     via the GitHub API (not `git ls-remote`), short-lived branches, conventional
     commits, per-command identity, everything that defines the project in git,
     fail-closed privacy check before every push, HTTPS pushes.
-  - `process-standards.md` (always on): verify external services live first,
+  - `process-standards.md` (auto-included): verify external services live first,
     requirements → design → review → plan → build → review → deploy → verify,
     explicit user-only pauses, "done" means verified.
   - `lessons-learned.md` (`inclusion: auto`): API Gateway "CORS" errors, async
@@ -36,8 +36,8 @@ folded back into the standards.
   client, pinned callback URLs, authorizer on every non-public route), SSM
   Parameter Store rules (user enters secrets at a `read -rs` prompt; agents only
   check existence; personal identifiers treated as secrets).
-- Tech: plain-English comparison of shapes A (standard), A0 (static-only) and the
-  exception shape B; EventBridge Scheduler with explicit timezone; idempotent
+- Tech: shapes A (standard), A0 (static-only) and the exception shape B (with a
+  plain-English comparison in the README); EventBridge Scheduler with explicit timezone; idempotent
   cursor-based ingest with a backfill mode; no reserved concurrency by default;
   explicit memory/timeout; one table per app; single-stage apps are fine.
 - Deployment: `staging/` is the live site; content-only default deploy with
@@ -45,7 +45,7 @@ folded back into the standards.
   (`--delete`, no blanket `--content-type`, `Cache-Control`); post-deploy checks
   that need no data.
 - Frontend: CloudFront response headers policy with a strict CSP; Cache-Control
-  guidance; static-only and authenticated-site variants.
+  guidance (in `deployment-standards.md`); static-only and authenticated-site variants.
 - Templates: `cognito-stack.yaml` (managed login v2 + `ManagedLoginBranding` with
   colour parameters and the pre-create checklist), `api-stack.yaml`,
   `data-stack.yaml`, `budget-stack.yaml`, `artifacts-stack.yaml`, `gitignore`,
@@ -85,6 +85,35 @@ folded back into the standards.
   Kiro's steering docs document the array form for multiple patterns; v1's
   `'*.yaml|*.yml|...'` was not a valid glob.
 - All always-on steering files now have explicit `inclusion: always` front matter.
+- **Always-on steering slimmed to cut token usage** (about 4,240 -> 1,890 words,
+  roughly 55% less loaded into every request). Nothing was dropped; detail moved
+  into files that load only when relevant:
+  - New `cognito.md` (auto): the Cognito standard configuration from
+    `security-standards.md` plus a summary of the managed login branding lessons.
+  - New `web-functions.md` (auto): exception shape B (Lambda Web Functions) from
+    `tech-standards.md`, plus its cost caveat from `cost-standards.md`.
+  - New `data-ingest.md` (auto): scheduled jobs and idempotent ingest from
+    `tech-standards.md`, plus the right-size-schedules rule.
+  - `frontend-hosting.md` and `github-standards.md` are now `inclusion: auto`
+    (with keyword-rich descriptions) instead of always on.
+  - npm script conventions moved from `tech-standards.md` to
+    `deployment-standards.md`; API-key and shared-token details now live only in
+    `templates/auth/`. `security-standards.md` gained the short "never in git"
+    rule and keeps the auth decision table, SSM basics and throttling.
+  - Always on after this pass: `tech-standards`, `security-standards`,
+    `cost-standards`, `process-standards`. The README has a token-budget table.
+- **Second slimming pass** (always-on about 3,225 -> 1,660 tokens, below v1's
+  ~2,400):
+  - `process-standards.md` is now `inclusion: auto` with a keyword-rich
+    description (new project/feature, design, review, testing, deploying,
+    external APIs, user-entered secrets, "is it done", reporting results).
+  - Obvious and duplicated guidance removed from every steering file; each rule
+    now lives in one file (e.g. Cognito branding lessons in `cognito.md`, Web
+    Functions gotchas in `web-functions.md`, Cache-Control in
+    `deployment-standards.md`, privacy-check mechanics in `github-standards.md`).
+    No owner decision or value was dropped.
+  - Fixed garbled text in `security-standards.md` (privacy-check line and the
+    auth table intro) left by the first pass.
 - `install.sh`: `STANDARDS_REF` (branch or tag) replaces `STANDARDS_BRANCH`
   (still accepted, with a deprecation warning); default ref `main`; help works
   when piped through `curl | bash`.
@@ -119,8 +148,9 @@ In a project that installed v1 standards:
 
 1. **Re-install** the steering with `--force` (backups are made):
    `curl -fsSL https://raw.githubusercontent.com/syeltuor/kiro-template/main/install.sh | bash -s -- . --force`
-   This adds `cost-standards.md`, `github-standards.md`, `process-standards.md`
-   and `lessons-learned.md`, and updates the four v1 files.
+   This adds `cost-standards.md`, `github-standards.md`, `process-standards.md`,
+   `cognito.md`, `web-functions.md`, `data-ingest.md` and `lessons-learned.md`,
+   and updates the four v1 files.
 2. **Delete** after reviewing the diff: the `*.bak-<timestamp>` copies, and any
    `serverless.yml` / Serverless plugins if you migrate that project to
    CloudFormation (or keep them knowingly: v2 no longer covers them).

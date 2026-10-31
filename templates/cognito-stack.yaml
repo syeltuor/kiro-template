@@ -3,7 +3,8 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Cognito user pool (admin-create-only, Essentials), managed login v2 with branding, public web client (authorization code + PKCE)'
 #
 # Use this stack ONLY when the site needs authentication (security-standards:
-# decision table row b). Public read-only sites need no Cognito.
+# decision table row b). Public read-only sites need no Cognito. Standard
+# configuration: .kiro/steering/cognito.md.
 #
 # BEFORE YOU CREATE THE POOL (checklist)
 #   [ ] The site really needs auth (private/personal data, or any admin/write function).

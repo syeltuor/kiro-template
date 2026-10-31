@@ -1,16 +1,18 @@
 ---
-inclusion: always
+inclusion: auto
+name: github-standards
+description: Git and GitHub workflow - repo visibility (private or public), checking if a repo is public, creating a repo, branches, commits and commit identity, author email, conventional commit messages, push, pull request, merge to main, tags and releases, .gitignore, what to keep out of git, privacy check before push, rewriting history. Use for any git or GitHub task.
 ---
 <!-- kiro-template v2.0.0 -->
 
 # GitHub Standards
 
-How repositories are set up and used. No CI/CD is assumed.
+No CI/CD is assumed.
 
 ## Visibility
 
-- **Private by default.** Make a repo public only deliberately, and only after a
-  privacy check of its full history.
+- **Private by default.** Public only deliberately, after a privacy check of the
+  full history.
 - Check visibility with the GitHub API, unauthenticated:
 
   ```bash
@@ -18,52 +20,37 @@ How repositories are set up and used. No CI/CD is assumed.
   # 404 = private (or missing), 200 = public
   ```
 
-  **Not** `git ls-remote`: it succeeds on a private repo when credentials are
-  stored, and it returns nothing on an empty repo, so it proves neither.
+  **Not** `git ls-remote`: it succeeds on a private repo with stored credentials
+  and returns nothing on an empty repo.
 
-## Branches and merging
+## Branches and commits
 
-- `main` is the default branch and always deployable.
-- Work on short-lived feature branches (`feature/<topic>`, `fix/<topic>`). Never
-  push straight to `main` unless the owner asks.
-- Merge by pull request or a reviewed fast-forward. No force-pushes to shared
-  branches.
-- Tag releases (`v1.0.0`) when a version matters to someone pulling it.
-
-## Commits
-
+- `main` is the default, always deployable. Short-lived `feature/<topic>` /
+  `fix/<topic>` branches; never push straight to `main` unless the owner asks. No
+  force-pushes to shared branches. Tag releases (`v1.0.0`) when someone pulls by
+  version.
 - Conventional commits: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`.
-  Small and focused.
-- Commit identity per command (`git -c user.name=... -c user.email=... commit`) or
-  per repo (`git config --local`). **Never rewrite global git config.**
-- Never let a work email land in a personal repo (or the reverse). Check
+- Identity per command (`git -c user.name=... -c user.email=... commit`) or
+  `git config --local`. **Never change global git config.**
+- Never a work email in a personal repo (or the reverse): check
   `git log --format='%an <%ae>'` before the first push. Templates use
-  placeholders (`{{GIT_AUTHOR_NAME}}`, `{{GIT_AUTHOR_EMAIL}}`), never a real address.
+  `{{GIT_AUTHOR_NAME}}` / `{{GIT_AUTHOR_EMAIL}}`.
 
 ## What lives in git
 
-- **Everything that defines the project**: infra templates, scripts, application
-  code, `.kiro/steering`, templates, README, and the design / plan / review notes
-  (`.agents/<project>/`). The repo root can be the whole workspace.
+- **Everything that defines the project**: infra, scripts, code, `.kiro/steering`,
+  README, and design/plan/review notes (`.agents/<project>/`).
 - **Ignored**: only machine-local, secret or identifying files (`.env`, `.venv/`,
   `node_modules/`, `build/`, generated deploy config, `.DS_Store`). Baseline:
-  `templates/gitignore` (copy to `.gitignore`).
-
-## Never in git
-
-- No secrets or personal identifiers ever, including in markdown notes, test
-  fixtures and commit messages: API keys, tokens, account numbers, meter/device
-  IDs, addresses, postcodes, coordinates, AWS account IDs in notes.
-- Neutral example values in tests and docs.
-- A **fail-closed privacy check** (`templates/scripts/privacy-check.sh`) runs
-  before every push. It reads the real identifiers from SSM at run time (never
-  embeds them) and refuses to report clean if it can't fetch them all.
-- If something slips into history, treat it as compromised: rotate it, then
-  decide with the owner whether to rewrite history.
+  `templates/gitignore`.
+- The privacy check (`templates/scripts/privacy-check.sh`) reads the real
+  identifiers from SSM at run time (never embeds them) and fails closed if it
+  can't fetch them all. Also scrub AWS account IDs from notes.
+- Something slipped into history: rotate it, then decide with the owner whether
+  to rewrite history.
 
 ## Pushing
 
-- Push over **HTTPS**. Don't assume `gh` or SSH keys exist.
-- In scripts and agents use `GIT_TERMINAL_PROMPT=0` so a missing credential fails
+- **HTTPS**; don't assume `gh` or SSH keys exist.
+- Scripts and agents set `GIT_TERMINAL_PROMPT=0` so a missing credential fails
   instead of hanging.
-- New branches: `git push -u origin <branch>`.

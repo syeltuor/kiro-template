@@ -13,8 +13,10 @@ automatically.
 >   public read-only sites need no auth; private data or any write uses Cognito.
 > - **Idle cost under $1/month per app**, with a new always-on `cost-standards.md`.
 > - **Serverless Framework dropped.** Raw CloudFormation is the only IaC standard.
-> - **New steering**: `cost-standards`, `github-standards`, `process-standards`
->   and `lessons-learned` (real gotchas, incl. Cognito branding).
+> - **New steering**: `cost-standards`, `github-standards`, `process-standards`,
+>   `cognito`, `web-functions`, `data-ingest` and `lessons-learned` (real
+>   gotchas, incl. Cognito branding). Only three files are always on; the rest
+>   load when relevant (see [token budget](#steering-files-and-token-budget)).
 > - **No hard-coded runtime versions**: use the latest Lambda-supported runtimes.
 > - **New templates and scripts**: Cognito, API, data, budget, artifacts stacks;
 >   `deploy.sh`, `lint.sh`, `privacy-check.sh`, `setup-params.sh` and more.
@@ -35,13 +37,16 @@ kiro-template/
 ├── kiro/
 │   └── steering/                 # Installed into <project>/.kiro/steering/
 │       ├── tech-standards.md         # Architecture, shapes, runtimes, IaC (always)
-│       ├── security-standards.md     # Auth decision table, Cognito, SSM, CORS (always)
+│       ├── security-standards.md     # Never in git, SSM, auth table, throttling (always)
 │       ├── cost-standards.md         # < $1/month idle, what not to create (always)
-│       ├── frontend-hosting.md       # S3 + CloudFront + OAC, headers, CSP (always)
-│       ├── github-standards.md       # Visibility, branches, commits, privacy (always)
-│       ├── process-standards.md      # How work gets done and verified (always)
-│       ├── deployment-standards.md   # Deploy script rules (*.yaml, *.yml, *.sh)
-│       └── lessons-learned.md        # Gotchas (auto: loaded when relevant)
+│       ├── process-standards.md      # How work gets done and verified (auto)
+│       ├── frontend-hosting.md       # S3 + CloudFront + OAC, headers, CSP (auto)
+│       ├── github-standards.md       # Visibility, branches, commits, privacy (auto)
+│       ├── cognito.md                # Cognito config + branding lessons (auto)
+│       ├── web-functions.md          # Exception shape B: Lambda Web Functions (auto)
+│       ├── data-ingest.md            # Scheduled jobs, idempotent ingest (auto)
+│       ├── lessons-learned.md        # Gotchas (auto)
+│       └── deployment-standards.md   # Deploy script rules, npm scripts (*.yaml, *.yml, *.sh)
 └── templates/
     ├── certificate-stack.yaml        # ACM cert (us-east-1) for CloudFront
     ├── cloudfront-stack.yaml         # Private S3 + CloudFront (OAC, CSP) + Route53
@@ -73,6 +78,43 @@ kiro-template/
 
 The repo stores steering under `kiro/steering` (no dot) so it shows up on GitHub;
 the installer copies it to `.kiro/steering` in your project.
+
+## Steering files and token budget
+
+Every `inclusion: always` file is sent with **every** Kiro request, so the
+always-on set is kept short and the detail loads only when it's relevant:
+
+- **always**: loaded into every request.
+- **auto**: loaded when your request matches the file's `description` (so the
+  descriptions list the words people actually use, e.g. "Cognito", "login",
+  "CloudFront", "commit").
+- **fileMatch**: loaded when a file matching `fileMatchPattern` is in context.
+
+| File | Loaded | Covers |
+|---|---|---|
+| `tech-standards.md` | Always on | Architecture, project shapes, IaC, regions/runtimes, naming, DynamoDB |
+| `security-standards.md` | Always on | Never in git, SSM, auth decision table, throttling, CORS/TLS, IAM |
+| `cost-standards.md` | Always on | Under $1/month idle, resources needing approval, estimates |
+| `process-standards.md` | When relevant (auto) | Verify live, flow, user-only pauses, done means verified |
+| `frontend-hosting.md` | When relevant (auto) | S3 + CloudFront + OAC, security headers, CSP, DNS, icons |
+| `github-standards.md` | When relevant (auto) | Visibility, branches, commits, identity, pushing |
+| `cognito.md` | When relevant (auto) | Cognito standard config, token storage, managed login branding |
+| `web-functions.md` | When relevant (auto) | Exception shape B: region, runtime, billing, endpoint access |
+| `data-ingest.md` | When relevant (auto) | EventBridge Scheduler, cursors, backfill, retries, concurrency |
+| `lessons-learned.md` | When relevant (auto) | Real gotchas and troubleshooting |
+| `deployment-standards.md` | When relevant (fileMatch `*.yaml`, `*.yml`, `*.sh`) | Deploy script, sync rules, Cache-Control, stack order, checks, npm scripts |
+
+Always-on size per request (tokens estimated as characters / 4):
+
+| Version | Always-on files | Approx. tokens |
+|---|---|---|
+| v1 | tech, security, frontend-hosting | ~2,400 |
+| v2 as first uploaded | 7 files | ~7,200 |
+| v2 after first slimming | tech, security, cost, process | ~3,225 |
+| v2 now | tech, security, cost | ~1,660 |
+
+No owner decision was dropped: detail moved into files that load when relevant,
+and obvious or duplicated text was removed.
 
 ## Install into a project
 
@@ -129,7 +171,8 @@ With `--scripts`, copy `.env.example` to `.env` and copy the stacks you need fro
 | Machine-to-machine, or public endpoints needing per-client throttling | API Gateway API key |
 | Trivial, non-sensitive internal tool | Shared header token |
 
-Details in `kiro/steering/security-standards.md`.
+Details in `kiro/steering/security-standards.md` (Cognito setup in
+`kiro/steering/cognito.md`).
 
 ## Cost principle
 
