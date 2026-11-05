@@ -37,6 +37,9 @@ Organizations/SCPs.
 - Lambda log groups declared in the stack, `RetentionInDays` 14-30.
 - Monthly AWS Budget email alarm per account (`templates/budget-stack.yaml`; first two
   budgets free).
-- Tag everything `Project=<project>`; after a week, record the real bill (Cost
-  Explorer by tag) next to the estimate.
+- Tag every resource `Project=<project>`so each project's cost shows separately in Cost Explorer. Confirm the <project> value with the user  
+- Exact spelling: `Project` with a capital P. Values lowercase and hyphenated.
+- Apply it at stack level so all resources inherit it:
+  - CloudFormation: `aws cloudformation deploy ... --tags Project=<slug>`
+  - Serverless Framework: set `provider.stackTags` and `provider.tags` to `Project: <slug>`
 - Shape B bills memory while environments live (`web-functions.md`).
