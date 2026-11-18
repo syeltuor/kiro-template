@@ -51,3 +51,6 @@ description: Real gotchas and troubleshooting for AWS serverless apps - CORS err
   (`github-standards.md`).
 - **Headless Chrome won't screenshot below ~500px width** (`--window-size` is
   clamped). Set the viewport via DevTools protocol: `templates/scripts/cdp-shot.mjs`.
+
+## Cognito
+- Login page shows the wrong theme or default blue: missing lightMode/darkMode keys, or colorSchemeMode doesn't match the app. A renamed branding resource fails with AlreadyExists; use the two-deploy replacement
