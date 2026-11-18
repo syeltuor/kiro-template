@@ -92,7 +92,7 @@ Run them and report actual output; "stack succeeded" is not enough.
 - [ ] **A and AAAA** records resolve (`dig +short A/AAAA`)
 - [ ] **401 on every protected route** with no or a bogus token
 - [ ] CORS preflight returns only the site origin and allowed headers
-- [ ] Cognito login: PKCE curl test (`cognito.md`)
+- [ ] Cognito login:  PKCE curl test and a mobile screenshot of the sign-in page that matches the app's theme (`cognito.md`)
 - [ ] Favicon set (`templates/scripts/make-icons.sh`) and `manifest.json` served
 - [ ] Desktop and mobile screenshots: `templates/scripts/screenshots.sh`
 
