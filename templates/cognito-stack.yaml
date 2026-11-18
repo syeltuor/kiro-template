@@ -17,7 +17,10 @@ Description: 'Cognito user pool (admin-create-only, Essentials), managed login v
 #   [ ] AppUrl is the exact site origin with a trailing slash (callback + logout URL).
 #   [ ] MFA decision made with the owner (OFF is fine for a single-user read-only
 #       dashboard; ON for anything that changes data or money).
-#   [ ] Branding colours chosen (RRGGBBAA hex, parameters below).
+#   [ ] Branding colours copied from the app's CSS, light AND dark (RRGGBBAA hex).
+#       The defaults below are a neutral placeholder palette: replace them per app.
+#   [ ] ColorSchemeMode matches the app's default theme (LIGHT, DARK, or DYNAMIC if
+#       the app follows the device).
 #
 # MANAGED LOGIN BRANDING LESSONS
 #   - Managed login v2 (UserPoolDomain ManagedLoginVersion: 2, Essentials plan) shows an
@@ -25,6 +28,16 @@ Description: 'Cognito user pool (admin-create-only, Essentials), managed login v
 #     AWS::Cognito::ManagedLoginBranding per client, DependsOn the UserPoolDomain.
 #   - UseCognitoProvidedValues must be false when you supply Settings.
 #   - Settings is a PARTIAL document: Cognito merges unspecified keys with its defaults.
+#   - Set BOTH lightMode and darkMode for every component and class. colorSchemeMode
+#     picks which one is used; a mode without keys shows Cognito's default colours
+#     (the "wrong theme"). Match colorSchemeMode to the app's default theme.
+#   - Colour defaults come from the app's CSS variables (staging/css/app.css), never a
+#     generic palette.
+#   - Changing branding: an in-place Settings update does not reliably regenerate the
+#     hosted CSS, so replace the resource. A client can have only ONE branding style and
+#     CloudFormation creates the replacement before deleting the old one, so a plain
+#     rename fails with AlreadyExists. Two deploys: (1) remove the branding resource and
+#     deploy (login page errors briefly), (2) add it back with the next suffix (V1 -> V2).
 #   - The schema is strict: `link` and `input` are top-level `componentClasses`, NOT
 #     `components` (otherwise: "$.components.link UnknownProperty", stack rolls back).
 #   - To discover the real schema, create a temporary client with
@@ -58,41 +71,101 @@ Parameters:
     Default: "OFF"
     AllowedValues: ["OFF", "OPTIONAL", "ON"]
     Description: Owner's call. OFF is acceptable for single-user read-only dashboards
-  PageBackgroundColor:
+  ColorSchemeMode:
     Type: String
-    Default: 0e1322ff
-    AllowedPattern: '^[0-9a-fA-F]{8}$'
-  FormBackgroundColor:
+    Default: LIGHT
+    AllowedValues: [LIGHT, DARK, DYNAMIC]
+    Description: Login page theme. Match the app's default theme; DYNAMIC follows the device.
+  LightPageBackgroundColor:
     Type: String
-    Default: 161d33ff
+    Default: f7f7f5ff
     AllowedPattern: '^[0-9a-fA-F]{8}$'
-  BorderColor:
+    Description: Light mode - Page background
+  DarkPageBackgroundColor:
     Type: String
-    Default: 2a3456ff
+    Default: 121417ff
     AllowedPattern: '^[0-9a-fA-F]{8}$'
-  PrimaryColor:
+    Description: Dark mode - Page background
+  LightFormBackgroundColor:
     Type: String
-    Default: 8b6cf6ff
+    Default: ffffffff
     AllowedPattern: '^[0-9a-fA-F]{8}$'
-    Description: Primary button background
-  AccentColor:
+    Description: Light mode - Form card
+  DarkFormBackgroundColor:
     Type: String
-    Default: f050a8ff
+    Default: 1c1f24ff
     AllowedPattern: '^[0-9a-fA-F]{8}$'
-    Description: Button hover/active and link colour
-  TextColor:
+    Description: Dark mode - Form card
+  LightBorderColor:
     Type: String
-    Default: e8ecf7ff
+    Default: e3e3e0ff
     AllowedPattern: '^[0-9a-fA-F]{8}$'
-  MutedTextColor:
+    Description: Light mode - Form and input borders
+  DarkBorderColor:
     Type: String
-    Default: 9aa5c4ff
+    Default: 33373dff
     AllowedPattern: '^[0-9a-fA-F]{8}$'
-  InputBackgroundColor:
+    Description: Dark mode - Form and input borders
+  LightPrimaryColor:
     Type: String
-    Default: 1c2541ff
+    Default: 2e7d32ff
     AllowedPattern: '^[0-9a-fA-F]{8}$'
-
+    Description: Light mode - Primary button
+  DarkPrimaryColor:
+    Type: String
+    Default: 66bb6aff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Dark mode - Primary button
+  LightAccentColor:
+    Type: String
+    Default: 1b5e20ff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Light mode - Button hover/active and links
+  DarkAccentColor:
+    Type: String
+    Default: 81c784ff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Dark mode - Button hover/active and links
+  LightButtonTextColor:
+    Type: String
+    Default: ffffffff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Light mode - Text on the primary button
+  DarkButtonTextColor:
+    Type: String
+    Default: 0d1f0eff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Dark mode - Text on the primary button
+  LightTextColor:
+    Type: String
+    Default: 222222ff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Light mode - Headings and body text
+  DarkTextColor:
+    Type: String
+    Default: ecececff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Dark mode - Headings and body text
+  LightMutedTextColor:
+    Type: String
+    Default: 666666ff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Light mode - Descriptions
+  DarkMutedTextColor:
+    Type: String
+    Default: a0a4abff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Dark mode - Descriptions
+  LightInputBackgroundColor:
+    Type: String
+    Default: ffffffff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Light mode - Input fields
+  DarkInputBackgroundColor:
+    Type: String
+    Default: 24282eff
+    AllowedPattern: '^[0-9a-fA-F]{8}$'
+    Description: Dark mode - Input fields
 Conditions:
   MfaOff: !Equals [!Ref MfaConfiguration, "OFF"]
 
@@ -167,7 +240,11 @@ Resources:
 
   # Required with managed login v2: without a style the client shows an error page.
   # Partial settings document; unspecified keys keep Cognito's defaults.
-  ManagedLoginBranding:
+  # Both lightMode and darkMode keys are set for every component: whichever mode is
+  # missing falls back to Cognito's default (blue/white) colours.
+  # The logical ID carries a version: see "Changing branding" in the header for the
+  # two-deploy replacement (a plain rename fails with AlreadyExists).
+  ManagedLoginBrandingV1:
     Type: AWS::Cognito::ManagedLoginBranding
     DependsOn: UserPoolDomain
     Properties:
@@ -175,12 +252,9 @@ Resources:
       ClientId: !Ref UserPoolClient
       UseCognitoProvidedValues: false
       Settings:
-        # Verified shape (dark theme). For a light theme set colorSchemeMode: LIGHT and
-        # rename every darkMode key to lightMode, then verify with
-        # describe-managed-login-branding-by-client --return-merged-resources.
         categories:
           global:
-            colorSchemeMode: DARK
+            colorSchemeMode: !Ref ColorSchemeMode
             pageHeader:
               enabled: false
             pageFooter:
@@ -193,45 +267,72 @@ Resources:
               enabled: false
         components:
           pageBackground:
+            lightMode:
+              color: !Ref LightPageBackgroundColor
             darkMode:
-              color: !Ref PageBackgroundColor
+              color: !Ref DarkPageBackgroundColor
             image:
               enabled: false
           form:
+            lightMode:
+              backgroundColor: !Ref LightFormBackgroundColor
+              borderColor: !Ref LightBorderColor
             darkMode:
-              backgroundColor: !Ref FormBackgroundColor
-              borderColor: !Ref BorderColor
-            borderRadius: 12
+              backgroundColor: !Ref DarkFormBackgroundColor
+              borderColor: !Ref DarkBorderColor
+            borderRadius: 18
           primaryButton:
+            lightMode:
+              defaults:
+                backgroundColor: !Ref LightPrimaryColor
+                textColor: !Ref LightButtonTextColor
+              hover:
+                backgroundColor: !Ref LightAccentColor
+                textColor: !Ref LightButtonTextColor
+              active:
+                backgroundColor: !Ref LightAccentColor
+                textColor: !Ref LightButtonTextColor
             darkMode:
               defaults:
-                backgroundColor: !Ref PrimaryColor
-                textColor: !Ref PageBackgroundColor
+                backgroundColor: !Ref DarkPrimaryColor
+                textColor: !Ref DarkButtonTextColor
               hover:
-                backgroundColor: !Ref AccentColor
-                textColor: !Ref PageBackgroundColor
+                backgroundColor: !Ref DarkAccentColor
+                textColor: !Ref DarkButtonTextColor
               active:
-                backgroundColor: !Ref AccentColor
-                textColor: !Ref PageBackgroundColor
+                backgroundColor: !Ref DarkAccentColor
+                textColor: !Ref DarkButtonTextColor
           pageText:
+            lightMode:
+              headingColor: !Ref LightTextColor
+              bodyColor: !Ref LightTextColor
+              descriptionColor: !Ref LightMutedTextColor
             darkMode:
-              headingColor: !Ref TextColor
-              bodyColor: !Ref TextColor
-              descriptionColor: !Ref MutedTextColor
+              headingColor: !Ref DarkTextColor
+              bodyColor: !Ref DarkTextColor
+              descriptionColor: !Ref DarkMutedTextColor
         # link and input are component CLASSES, not components (strict schema).
         componentClasses:
           link:
-            darkMode:
+            lightMode:
               defaults:
-                textColor: !Ref AccentColor
+                textColor: !Ref LightAccentColor
               hover:
-                textColor: !Ref TextColor
-          input:
+                textColor: !Ref LightTextColor
             darkMode:
               defaults:
-                backgroundColor: !Ref InputBackgroundColor
-                borderColor: !Ref BorderColor
-
+                textColor: !Ref DarkAccentColor
+              hover:
+                textColor: !Ref DarkTextColor
+          input:
+            lightMode:
+              defaults:
+                backgroundColor: !Ref LightInputBackgroundColor
+                borderColor: !Ref LightBorderColor
+            darkMode:
+              defaults:
+                backgroundColor: !Ref DarkInputBackgroundColor
+                borderColor: !Ref DarkBorderColor
 Outputs:
   UserPoolId:
     Description: Cognito user pool ID
