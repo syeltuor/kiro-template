@@ -58,3 +58,17 @@ CSP `connect-src` and `form-action` must include the managed login origin.
 - **Test with curl**: authorize URL with a real S256 PKCE challenge, `curl -sL`,
   ends on the sign-in page with the expected `<title>`; an unregistered
   `redirect_uri` gives `redirect_mismatch`.
+- **Theme must match the app.** Set `colorSchemeMode` to the app's default theme
+  (LIGHT, DARK or DYNAMIC if the app follows the device). Set **both** `lightMode`
+  and `darkMode` keys on every component and component class: a mode without keys
+  falls back to Cognito's default blue/white, which looks like "the wrong theme".
+- **Colours come from the app's CSS variables**, light and dark sets, as stack
+  parameters. Never ship the template's default palette.
+- **Changing branding later:** in-place `Settings` updates don't reliably
+  regenerate the hosted CSS, so replace the resource. One branding style per app
+  client, and CloudFormation creates before it deletes, so a plain rename fails with
+  `AlreadyExists`. Two deploys: (1) remove the branding resource, deploy; (2) add it
+  back with the next version suffix (`ManagedLoginBrandingV3`), deploy.
+- **Verify visually**: `describe-managed-login-branding-by-client` shows the
+  expected mode and colours, plus a mobile screenshot of the live sign-in page
+  matched against the app.
